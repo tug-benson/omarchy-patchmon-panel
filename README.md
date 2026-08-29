@@ -7,6 +7,8 @@ per-host detail — without leaving your desktop.
 ![category: System](https://img.shields.io/badge/category-System-8b8b8b)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue)
 
+![PatchMon Panel preview](preview.png)
+
 ## What it shows
 
 A single bar icon (a server glyph) coloured by fleet health:
@@ -24,7 +26,7 @@ Click it (or press the plugin's popout key) to open a panel with:
 | Total Hosts | `hosts` array length |
 | Needs Updates | hosts with `updates_count > 0` |
 | Needs Reboot | hosts with `needs_reboot` |
-| Connection | `reporting` vs everything else (`connected/offline`) |
+| Connection | hosts whose last check-in is within `staleAfterMin` (`connected/offline`); the Integration API does not expose `reporting_state`, so connectivity is derived from `last_update` recency |
 | Security Score | derived (see below) |
 | Packages | sum of `total_packages` |
 | Outdated Packages | sum of `updates_count` |
