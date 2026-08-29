@@ -1,0 +1,4 @@
+# Local overrides / secrets never committed
+config.local.json
+*.local
+.DS_Store

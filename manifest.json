@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.tug-benson.patchmon",
+  "name": "PatchMon Panel",
+  "version": "1.0.0",
+  "author": "tug-benson",
+  "license": "MIT",
+  "homepage": "https://github.com/tug-benson/omarchy-patchmon-panel",
+  "description": "PatchMon fleet status in your Omarchy bar: total hosts, pending updates, reboots, connectivity and a derived security score, with a drill-down panel.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "PatchMon",
+    "description": "Shows PatchMon fleet health and lets you drill into per-host status.",
+    "category": "System",
+    "aliases": [
+      "patchmon",
+      "patch",
+      "updates",
+      "security",
+      "hosts",
+      "fleet"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 60,
+      "verifySsl": true
+    },
+    "schema": [
+      {
+        "key": "serverUrl",
+        "type": "string",
+        "label": "PatchMon server URL",
+        "defaultValue": "",
+        "description": "Base URL, e.g. https://patchmon.example.com"
+      },
+      {
+        "key": "apiKey",
+        "type": "string",
+        "label": "Integration API token key",
+        "defaultValue": "",
+        "description": "Token Key from Settings -> Integrations -> API (host:get scope)"
+      },
+      {
+        "key": "apiSecret",
+        "type": "string",
+        "label": "Integration API token secret",
+        "defaultValue": "",
+        "description": "Token Secret (shown once at creation). Stored only in your local shell.json."
+      },
+      {
+        "key": "hostGroup",
+        "type": "string",
+        "label": "Host group filter (optional)",
+        "defaultValue": "",
+        "description": "Only show hosts in this PatchMon host group"
+      },
+      {
+        "key": "verifySsl",
+        "type": "boolean",
+        "label": "Verify TLS certificate",
+        "defaultValue": true,
+        "description": "Disable only for self-signed/internal test instances"
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 15,
+        "max": 600,
+        "step": 15,
+        "defaultValue": 60
+      }
+    ]
+  }
+}
