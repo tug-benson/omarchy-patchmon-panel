@@ -26,6 +26,16 @@ Panel {
   readonly property string serverHost: (function () { var m = String(serverUrl).match(/\/\/([^/]+)/); return m ? m[1] : serverUrl; })()
   readonly property string scriptPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.tug-benson.patchmon/bin/fetch.sh"
 
+  // Injected by BarWidget.injectPanel() so the panel anchors to the bar button.
+  property var anchorItem: null
+  property var hostWidget: null
+
+  function switchPanel(direction) {
+    if (root.bar && typeof root.bar.switchPanelFrom === "function")
+      return root.bar.switchPanelFrom(root.hostWidget || root, direction)
+    return false
+  }
+
   // ---- theme shortcuts ----------------------------------------------------
   // Popup content keys off the *popup* surface tokens so text stays readable
   // against the panel background (Color.popups.background), not the bar's.
@@ -221,28 +231,10 @@ Panel {
     onTriggered: root.nowTick = Math.floor(Date.now() / 1000)
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
-
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: root.barIcon
-    foreground: root.statusColor
-    slotSize: Style.bar.iconSlot
-    tooltipText: root.tooltipText
-    onPressed: function (b) {
-      if (!root.bar) return
-      if (b === Qt.MiddleButton) root.refresh()
-      else root.toggle()
-    }
-  }
-
   KeyboardPanel {
     id: panel
-    anchorItem: button
-    owner: root
+    anchorItem: root.anchorItem
+    owner: root.hostWidget || root
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
