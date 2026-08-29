@@ -64,6 +64,7 @@ Item {
     anchors.topMargin: Style.space(8)
     width: parent.width
     height: openState ? bodyCol.implicitHeight : 0
+    implicitHeight: height
     visible: openState
 
     Column {

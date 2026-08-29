@@ -12,14 +12,28 @@ RowLayout {
   property string fontFamily: Style.font.family
   property color accent: Color.accent
   property color urgent: Color.urgent
+  property int staleAfterMin: 1440
 
   width: parent ? parent.width : 200
   spacing: Style.space(8)
 
-  readonly property bool online: host ? host.reporting_state === "reporting" : false
+  function hAge(iso) {
+    if (!iso) return Infinity
+    var t = Date.parse(iso)
+    if (!t || isNaN(t)) return Infinity
+    return Math.max(0, (Date.now() - t) / 60000)
+  }
+  readonly property bool online: host ? hAge(host.last_update) <= staleAfterMin : false
   readonly property int updates: host ? (Number(host.updates_count) || 0) : 0
   readonly property int sec: host ? (Number(host.security_updates_count) || 0) : 0
   readonly property bool reboot: host ? host.needs_reboot === true : false
+  readonly property string lastSeen: host ? (function () {
+    var m = hAge(host.last_update)
+    if (!isFinite(m)) return "never"
+    if (m < 60) return Math.round(m) + "m"
+    if (m < 1440) return Math.round(m / 60) + "h"
+    return Math.round(m / 1440) + "d"
+  })() : ""
 
   Text {
     text: "\u25CF"
@@ -70,5 +84,12 @@ RowLayout {
     color: root.urgent
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
+  }
+  Text {
+    visible: root.lastSeen !== ""
+    text: root.lastSeen
+    color: !root.online ? root.urgent : Qt.darker(root.foreground, 1.4)
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
   }
 }

@@ -75,6 +75,16 @@
         "max": 600,
         "step": 15,
         "defaultValue": 60
+      },
+      {
+        "key": "staleAfterMin",
+        "type": "integer",
+        "label": "Stale after (minutes)",
+        "min": 5,
+        "max": 10080,
+        "step": 60,
+        "defaultValue": 1440,
+        "description": "A host whose last check-in is older than this is shown as Offline/Stale. PatchMon's Integration API does not expose reporting_state, so connectivity is derived from last_update recency (default 24h)."
       }
     ]
   }

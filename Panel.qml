@@ -18,16 +18,26 @@ Panel {
   readonly property string hostGroup: setting("hostGroup", "") || ""
   readonly property bool verifySsl: setting("verifySsl", true)
   readonly property int refreshIntervalSec: Math.max(15, setting("refreshIntervalSec", 60))
+  // A host counts as "reporting/online" when it last checked in within this
+  // many minutes. PatchMon's Integration API does not expose reporting_state,
+  // so we derive connectivity from how fresh `last_update` is.
+  readonly property int staleAfterMin: Math.max(1, setting("staleAfterMin", 1440))
   readonly property bool configured: serverUrl !== "" && apiKey !== "" && apiSecret !== ""
   readonly property string serverHost: (function () { var m = String(serverUrl).match(/\/\/([^/]+)/); return m ? m[1] : serverUrl; })()
   readonly property string scriptPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.tug-benson.patchmon/bin/fetch.sh"
 
   // ---- theme shortcuts ----------------------------------------------------
-  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
-  readonly property color dim: Qt.darker(fg, 1.4)
-  readonly property color accent: root.bar ? root.bar.accent : Color.accent
-  readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
+  // Popup content keys off the *popup* surface tokens so text stays readable
+  // against the panel background (Color.popups.background), not the bar's.
+  readonly property color fg: Color.popups.text
+  readonly property color dim: Color.muted
+  readonly property color accent: Color.accent
+  readonly property color urgent: Color.urgent
   readonly property string ff: root.bar ? root.bar.fontFamily : "monospace"
+  // Bar-icon tokens (contrast against the bar surface, not the popup).
+  readonly property color barFg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property color barAccent: root.bar ? root.bar.accent : Color.accent
+  readonly property color barUrgent: root.bar ? root.bar.urgent : Color.urgent
 
   // ---- glyphs (Font Awesome, patched into the Omarchy nerd font) ----------
   readonly property string gServer: "\uF233"
@@ -43,6 +53,17 @@ Panel {
   readonly property string gExt: "\uF08E"
   readonly property string gWarn: "\uF071"
   readonly property string gClock: "\uF017"
+
+  // ---- PatchMon dashboard card palette (from the PatchMon web UI) ----------
+  readonly property color cardBg: "#1d223c"
+  readonly property color cMuted: "#5b6478"
+  readonly property color cHosts: "#2865eb"
+  readonly property color cUpdates: "#d97909"
+  readonly property color cReboot: "#e0524f"
+  readonly property color cConn: "#36a3f7"
+  readonly property color cPackages: "#8b93b0"
+  readonly property color cScore: "#3fb950"
+  readonly property color cSec: "#e0524f"
 
   // ---- runtime state ------------------------------------------------------
   property var rawData: ({})
@@ -71,10 +92,10 @@ Panel {
   readonly property var hosts: (rawData && rawData.hosts && Array.isArray(rawData.hosts)) ? rawData.hosts : []
 
   // ---- derived presentation ----------------------------------------------
-  readonly property color statusColor: (!configured) ? dim
-    : (!reachable ? urgent
-      : (securityHosts > 0 || offline > 0 ? urgent
-        : (needsUpdates > 0 || needsReboot > 0 ? accent : fg)))
+  readonly property color statusColor: (!configured) ? barFg
+    : (!reachable ? barUrgent
+      : (securityHosts > 0 || offline > 0 ? barUrgent
+        : (needsUpdates > 0 || needsReboot > 0 ? barAccent : barFg)))
   readonly property color scoreColor: securityScore >= 85 ? fg
     : (securityScore >= 60 ? accent : urgent)
   readonly property string barIcon: configured ? (reachable ? gServer : gWarn) : gServer
@@ -101,11 +122,11 @@ Panel {
       var uc = Number(h.updates_count) || 0
       var sc = Number(h.security_updates_count) || 0
       var t = Number(h.total_packages) || 0
-      var online = h.reporting_state === "reporting"
+      var online = hostAgeMin(h.last_update) <= root.staleAfterMin
       if (online) c++; else { off++; offlineArr.push(h) }
       if (uc > 0) nu++
       if (h.needs_reboot === true) nr++
-      if (h.update_state === "up_to_date") ud++
+      if (uc === 0 && sc === 0) ud++
       if (sc > 0) sh++
       op += uc; sp += sc; tpk += t
       var os = h.os_type || "Unknown"
@@ -119,6 +140,12 @@ Panel {
     total = hs.length; connected = c; offline = off
     needsUpdates = nu; needsReboot = nr; upToDateHosts = ud
     securityHosts = sh; outdatedPackages = op; securityPackages = sp; totalPackages = tpk
+    function byName(a, b) {
+      var na = (a.friendly_name || a.hostname || "").toLowerCase()
+      var nb = (b.friendly_name || b.hostname || "").toLowerCase()
+      return na < nb ? -1 : (na > nb ? 1 : 0)
+    }
+    offlineArr.sort(byName); rebArr.sort(byName); updArr.sort(byName); okArr.sort(byName)
     var arr = []
     for (var k in od) arr.push({ name: k, count: od[k] })
     arr.sort(function (a, b) { return b.count - a.count })
@@ -151,6 +178,14 @@ Panel {
   function refresh() {
     if (fetchProc.running) return
     fetchProc.running = true
+  }
+
+  // Minutes since a host last reported. Infinity if unknown.
+  function hostAgeMin(iso) {
+    if (!iso) return Infinity
+    var t = Date.parse(iso)
+    if (!t || isNaN(t)) return Infinity
+    return Math.max(0, (Date.now() - t) / 60000)
   }
 
   Component.onCompleted: if (configured) refresh()
@@ -211,8 +246,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(400))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(680))
+    contentWidth: panel.fittedContentWidth(Style.space(420))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -220,14 +255,11 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
       onTextKey: function (t) { if (t === "r" || t === "R") root.refresh() }
-    }
 
-    Column {
-      id: column
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: parent.top
-      spacing: Style.space(14)
+      Column {
+        id: column
+        width: parent.width
+        spacing: Style.space(14)
 
       // ---------- Hero ----------
       PanelHero {
@@ -267,6 +299,30 @@ Panel {
         wrapMode: Text.WordWrap
       }
 
+      // ---------- Footer (kept near the top so it is always visible) ----------
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(8)
+        Button {
+          Layout.fillWidth: true
+          text: "Open PatchMon"
+          iconText: root.gExt
+          fontFamily: root.ff
+          foreground: root.fg
+          bordered: true
+          onClicked: if (root.serverUrl) Qt.openUrlExternally(root.serverUrl)
+        }
+        Button {
+          Layout.fillWidth: true
+          text: "Refresh"
+          iconText: root.gRefresh
+          fontFamily: root.ff
+          foreground: root.fg
+          bordered: true
+          onClicked: root.refresh()
+        }
+      }
+
       PanelSeparator { foreground: root.fg }
 
       // ---------- Dashboard cards ----------
@@ -276,17 +332,17 @@ Panel {
         columnSpacing: Style.space(8)
         rowSpacing: Style.space(8)
 
-        MetricCard { Layout.fillWidth: true; glyph: root.gServer; label: "Hosts"; value: String(root.total); color: root.fg; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gRefresh; label: "Needs Updates"; value: String(root.needsUpdates); color: root.needsUpdates > 0 ? root.accent : root.fg; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gPower; label: "Needs Reboot"; value: String(root.needsReboot); color: root.needsReboot > 0 ? root.urgent : root.fg; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gServer; label: "Hosts"; value: String(root.total); tint: root.cHosts; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gRefresh; label: "Needs Updates"; value: String(root.needsUpdates); tint: root.needsUpdates > 0 ? root.cUpdates : root.cMuted; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gPower; label: "Needs Reboot"; value: String(root.needsReboot); tint: root.needsReboot > 0 ? root.cReboot : root.cMuted; fontFamily: root.ff }
 
-        MetricCard { Layout.fillWidth: true; glyph: root.gNet; label: "Connection"; value: root.connected + "/" + root.total; color: root.offline > 0 ? root.urgent : root.fg; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gShield; label: "Security Score"; value: root.securityScore + "%"; color: root.scoreColor; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gBoxes; label: "Packages"; value: String(root.totalPackages); color: root.fg; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gNet; label: "Connection"; value: root.connected + "/" + root.total; tint: root.offline > 0 ? root.cReboot : root.cConn; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gShield; label: "Security Score"; value: root.securityScore + "%"; tint: root.cScore; valueColor: root.scoreColor; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gBoxes; label: "Packages"; value: String(root.totalPackages); tint: root.cPackages; fontFamily: root.ff }
 
-        MetricCard { Layout.fillWidth: true; glyph: root.gDownload; label: "Outdated Pkgs"; value: String(root.outdatedPackages); color: root.outdatedPackages > 0 ? root.accent : root.fg; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gLock; label: "Security Pkgs"; value: String(root.securityPackages); color: root.securityPackages > 0 ? root.urgent : root.fg; fontFamily: root.ff }
-        MetricCard { Layout.fillWidth: true; glyph: root.gUsers; label: "Outdated Hosts"; value: String(root.needsUpdates); color: root.needsUpdates > 0 ? root.accent : root.fg; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gDownload; label: "Outdated Pkgs"; value: String(root.outdatedPackages); tint: root.outdatedPackages > 0 ? root.cUpdates : root.cMuted; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gLock; label: "Security Pkgs"; value: String(root.securityPackages); tint: root.securityPackages > 0 ? root.cSec : root.cMuted; fontFamily: root.ff }
+        MetricCard { Layout.fillWidth: true; cardBackground: root.cardBg; glyph: root.gWarn; label: "Security Hosts"; value: String(root.securityHosts); tint: root.securityHosts > 0 ? root.cSec : root.cMuted; fontFamily: root.ff }
       }
 
       PanelSeparator { foreground: root.fg }
@@ -315,32 +371,6 @@ Panel {
             Text { text: "Offline / stale"; color: root.dim; font.family: root.ff; font.pixelSize: Style.font.bodySmall }
             Item { Layout.fillWidth: true }
             Text { text: String(root.offline); color: root.urgent; font.family: root.ff; font.pixelSize: Style.font.bodySmall }
-          }
-        }
-      }
-
-      // ---------- Hosts (drill-down) ----------
-      Collapsible {
-        width: parent.width
-        title: "Hosts"
-        badge: String(root.total)
-        foreground: root.fg
-        fontFamily: root.ff
-        Flickable {
-          width: parent.width
-          height: Math.min(inner.implicitHeight, Style.space(280))
-          contentHeight: inner.implicitHeight
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-          Column {
-            id: inner
-            width: parent.width
-            spacing: Style.space(10)
-            StatusGroup { title: "Offline / Stale"; model: root.hostsOffline; dotColor: root.urgent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent }
-            StatusGroup { title: "Needs Reboot"; model: root.hostsNeedReboot; dotColor: root.urgent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent }
-            StatusGroup { title: "Needs Updates"; model: root.hostsNeedUpdate; dotColor: root.accent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent }
-            StatusGroup { title: "Up to Date"; model: root.hostsUpToDate; dotColor: root.fg; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent }
           }
         }
       }
@@ -379,31 +409,37 @@ Panel {
         }
       }
 
-      // ---------- Footer ----------
-      RowLayout {
+      // ---------- Hosts (drill-down, collapsed by default, last) ----------
+      Collapsible {
         width: parent.width
-        spacing: Style.space(8)
-        Button {
-          Layout.fillWidth: true
-          text: "Open PatchMon"
-          iconText: root.gExt
-          fontFamily: root.ff
-          foreground: root.fg
-          bordered: true
-          onClicked: if (root.serverUrl) Qt.openUrlExternally(root.serverUrl)
-        }
-        Button {
-          Layout.fillWidth: true
-          text: "Refresh"
-          iconText: root.gRefresh
-          fontFamily: root.ff
-          foreground: root.fg
-          bordered: true
-          onClicked: root.refresh()
+        title: "Hosts"
+        badge: String(root.total)
+        defaultOpen: false
+        foreground: root.fg
+        fontFamily: root.ff
+        Flickable {
+          width: parent.width
+          height: Math.min(inner.implicitHeight, Style.space(240))
+          contentHeight: inner.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+          Column {
+            id: inner
+            width: parent.width
+            spacing: Style.space(10)
+            StatusGroup { title: "Offline / Stale"; model: root.hostsOffline; dotColor: root.urgent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent; staleAfterMin: root.staleAfterMin }
+            StatusGroup { title: "Needs Reboot"; model: root.hostsNeedReboot; dotColor: root.urgent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent; staleAfterMin: root.staleAfterMin }
+            StatusGroup { title: "Needs Updates"; model: root.hostsNeedUpdate; dotColor: root.accent; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent; staleAfterMin: root.staleAfterMin }
+            StatusGroup { title: "Up to Date"; model: root.hostsUpToDate; dotColor: root.fg; foreground: root.fg; fontFamily: root.ff; accent: root.accent; urgent: root.urgent; staleAfterMin: root.staleAfterMin }
+          }
         }
       }
-    }
-  }
+
+      } // Column
+    } // PanelKeyCatcher
+  } // KeyboardPanel
 
   // A status group inside the Hosts collapsible.
   component StatusGroup: Item {
@@ -415,6 +451,7 @@ Panel {
     property string fontFamily: Style.font.family
     property color accent: Color.accent
     property color urgent: Color.urgent
+    property int staleAfterMin: 1440
 
     width: parent.width
     implicitHeight: col.implicitHeight
@@ -441,6 +478,7 @@ Panel {
             fontFamily: sg.fontFamily
             accent: sg.accent
             urgent: sg.urgent
+            staleAfterMin: sg.staleAfterMin
             width: parent.width
           }
         }

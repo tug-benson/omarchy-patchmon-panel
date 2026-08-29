@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 
-// Small dashboard card: glyph + value + label, tinted by status.
+// Small dashboard card: glyph + value + label, themed like PatchMon's cards.
 BorderSurface {
   id: root
 
@@ -11,10 +11,12 @@ BorderSurface {
   property string label: ""
   property string value: ""
   property color tint: Color.foreground
+  property color cardBackground: "transparent"
+  property color valueColor: "#ffffff"
   property string fontFamily: Style.font.family
 
-  color: "transparent"
-  borderSpec: Border.controlSpec("normal", Color.foreground, Color.accent)
+  color: root.cardBackground
+  borderSpec: Border.controlSpec("normal", "#2b3258", "#39427a")
   radius: Style.cornerRadius
 
   implicitWidth: col.implicitWidth + Style.spacing.controlPaddingX * 2
@@ -35,7 +37,7 @@ BorderSurface {
 
     Text {
       text: root.value
-      color: root.tint
+      color: root.valueColor
       font.family: root.fontFamily
       font.pixelSize: Style.font.title
       font.bold: true
@@ -43,7 +45,7 @@ BorderSurface {
 
     Text {
       text: root.label
-      color: Qt.darker(root.tint, 1.4)
+      color: "#aab2c8"
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       font.letterSpacing: 0.8
