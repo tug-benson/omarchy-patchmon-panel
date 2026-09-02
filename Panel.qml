@@ -73,8 +73,8 @@ Panel {
   readonly property string gRefresh: "\uF021"
   readonly property string gPower: "\uF011"
   readonly property string gNet: "\uF4FC"
-  readonly property string gShield: "\uF483"
-  readonly property string gBoxes: "\uF466"
+  readonly property string gShield: "\uF162"
+  readonly property string gBoxes: "\uF4F8"
   readonly property string gDownload: "\uF019"
   readonly property string gLock: "\uF132"
   readonly property string gUsers: "\uF0C0"
@@ -121,12 +121,13 @@ Panel {
 
   // ---- derived presentation ----------------------------------------------
   readonly property color statusColor: (!configured) ? barFg
-    : (!reachable ? barUrgent
-      : (securityHosts > 0 || offline > 0 ? barUrgent
-        : (needsUpdates > 0 || needsReboot > 0 ? barAccent : barFg)))
+    : ((fetchProc && fetchProc.running) ? barFg
+      : (!reachable ? barUrgent
+        : (securityHosts > 0 || offline > 0 ? barUrgent
+          : (needsUpdates > 0 || needsReboot > 0 ? barAccent : barFg))))
   readonly property color scoreColor: securityScore >= 85 ? fg
     : (securityScore >= 60 ? accent : urgent)
-  readonly property string barIcon: configured ? (reachable ? gServer : gWarn) : gServer
+  readonly property string barIcon: configured ? ((reachable || (fetchProc && fetchProc.running)) ? gServer : gWarn) : gServer
   readonly property string tooltipText: (!configured) ? "PatchMon — not configured"
     : (!reachable) ? "PatchMon — unreachable"
     : ("PatchMon — " + total + " hosts · " + needsUpdates + " updates · " + needsReboot + " reboot · " + connected + "/" + total + " online")
