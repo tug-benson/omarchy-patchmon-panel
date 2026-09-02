@@ -1,41 +1,151 @@
 #!/usr/bin/env bash
-# PatchMon fleet fetcher for the Omarchy PatchMon Panel plugin.
-# Talks to the PatchMon Integration API (/api/v1/api/hosts?include=stats)
-# and prints the raw JSON to stdout. Credentials are passed as arguments
-# (a list, so no shell splitting) or via environment variables.
+# Secure PatchMon fetcher.
+# Reads a single-line JSON object from stdin:
+#   {"serverUrl":"https://...","apiKey":"...","apiSecret":"...","hostGroup":"...","verifySsl":true}
+# Never takes secrets via argv; the Authorization header is written to a
+# 0600 --config file (umask 077 + mktemp + chmod 600) and never appears in
+# /proc/*/cmdline. Response size is capped producer-side.
 set -uo pipefail
+umask 077
 
-URL="${PATCHMON_URL:-${1:-}}"
-KEY="${PATCHMON_KEY:-${2:-}}"
-SECRET="${PATCHMON_SECRET:-${3:-}}"
-GROUP="${PATCHMON_GROUP:-${4:-}}"
-INSECURE="${PATCHMON_INSECURE:-${5:-0}}"
-
-if [ -z "$URL" ] || [ -z "$KEY" ] || [ -z "$SECRET" ]; then
-  echo '{"error":"not-configured"}'
+# --- read config (one line JSON) ---
+IFS= read -r config || true
+if [ -z "$config" ]; then
+  printf '{"error":"missing-config"}\n'
+  exit 0
+fi
+if [ ${#config} -gt 8192 ]; then
+  printf '{"error":"config-too-large"}\n'
   exit 0
 fi
 
-AUTH=$(printf '%s:%s' "$KEY" "$SECRET" | base64 | tr -d '\n')
+# --- parse JSON securely via python3 (one invocation) ---
+eval "$(CONFIG="$config" python3 - <<'PY'
+import json, os, shlex, sys
+try:
+    data = json.loads(os.environ["CONFIG"])
+except Exception:
+    # signal bad-config via shell
+    print('_bad_config=1')
+    sys.exit(0)
+def cap(s, n):
+    if s is None:
+        return ""
+    s = str(s)
+    return s[:n]
+# caps match QML producer caps
+serverUrl = cap(data.get("serverUrl", ""), 2048)
+apiKey    = cap(data.get("apiKey", ""), 1024)
+apiSecret = cap(data.get("apiSecret", ""), 2048)
+hostGroup = cap(data.get("hostGroup", ""), 200)
+verifySsl = data.get("verifySsl", True)
+# normalize verifySsl to 1/0 string for shell
+v = "1" if str(verifySsl).lower() in ("1","true","yes","on") else "0"
+# shlex.quote for safe eval
+print(f"serverUrl={shlex.quote(serverUrl)}")
+print(f"apiKey={shlex.quote(apiKey)}")
+print(f"apiSecret={shlex.quote(apiSecret)}")
+print(f"hostGroup={shlex.quote(hostGroup)}")
+print(f"verifySsl={shlex.quote(v)}")
+# flag for bad json already handled
+PY
+)"
+if [ "${_bad_config:-0}" = "1" ]; then
+  printf '{"error":"bad-config"}\n'
+  exit 0
+fi
 
-REQ="$URL/api/v1/api/hosts?include=stats"
-if [ -n "$GROUP" ]; then
-  ESC=$(printf '%s' "$GROUP" | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read()))' 2>/dev/null || printf '%s' "$GROUP")
+if [ -z "${serverUrl:-}" ] || [ -z "${apiKey:-}" ] || [ -z "${apiSecret:-}" ]; then
+  printf '{"error":"not-configured"}\n'
+  exit 0
+fi
+
+# --- validate URL scheme: only https:// allowed ---
+case "$serverUrl" in
+  https://*)
+    ;;
+  *)
+    printf '{"error":"invalid-url-scheme"}\n'
+    exit 0
+    ;;
+esac
+# also reject whitespace/control chars
+if printf "%s" "$serverUrl" | grep -q '[[:space:]]'; then
+  printf '{"error":"invalid-url-scheme"}\n'
+  exit 0
+fi
+
+# --- build request URL ---
+REQ="$serverUrl/api/v1/api/hosts?include=stats"
+if [ -n "${hostGroup:-}" ]; then
+  ESC=$(printf "%s" "$hostGroup" | python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=""))' 2>/dev/null || printf "%s" "$hostGroup")
   REQ="$REQ&hostgroup=$ESC"
 fi
 
-if [ "$INSECURE" = "1" ]; then
-  INSECURE_FLAG="--insecure"
-else
+# --- insecure flag ---
+if [ "${verifySsl:-1}" = "1" ]; then
   INSECURE_FLAG=""
+else
+  INSECURE_FLAG="--insecure"
 fi
 
-HTTP_BODY=$(curl -fsS $INSECURE_FLAG -m 20 -H "Authorization: Basic $AUTH" "$REQ" 2>/dev/null)
+# --- private temp files (0600) ---
+tmpConfig=$(mktemp)
+tmpBody=$(mktemp)
+# ensure 600 even if umask changes
+chmod 600 "$tmpConfig" "$tmpBody" 2>/dev/null || true
+trap 'rm -f "$tmpConfig" "$tmpBody"' EXIT
+
+# --- build Authorization header in private --config file ---
+auth=$(printf "%s:%s" "$apiKey" "$apiSecret" | base64 -w0 2>/dev/null || printf "%s:%s" "$apiKey" "$apiSecret" | base64 | tr -d '\n')
+# clear secrets from shell variables as soon as possible
+unset apiKey
+unset apiSecret
+printf 'header = "Authorization: Basic %s"\n' "$auth" > "$tmpConfig"
+unset auth
+chmod 600 "$tmpConfig"
+
+# --- curl with producer-side caps ---
+# --proto =https enforces https only; --max-filesize caps response at 2 MiB
+# --max-time and --connect-timeout cap duration
+curl --silent --show-error $INSECURE_FLAG \
+  --max-time 30 --connect-timeout 10 \
+  --max-filesize 2097152 \
+  --proto =https --proto-default https \
+  --config "$tmpConfig" \
+  "$REQ" --output "$tmpBody" 2>/dev/null
 RC=$?
 
-if [ $RC -ne 0 ] || [ -z "$HTTP_BODY" ]; then
-  echo "{\"error\":\"fetch-failed\",\"httpStatus\":$RC}"
+# remove config immediately (secrets)
+rm -f "$tmpConfig"
+trap 'rm -f "$tmpBody"' EXIT
+
+if [ $RC -ne 0 ]; then
+  printf '{"error":"fetch-failed","httpStatus":%d}\n' "$RC"
+  rm -f "$tmpBody"
   exit 0
 fi
 
-printf '%s' "$HTTP_BODY"
+if [ ! -s "$tmpBody" ]; then
+  printf '{"error":"fetch-failed","httpStatus":0}\n'
+  rm -f "$tmpBody"
+  exit 0
+fi
+
+sz=$(stat -c%s "$tmpBody" 2>/dev/null || wc -c < "$tmpBody" | tr -d ' ')
+# normalize
+sz=$(printf "%s" "$sz" | tr -d '[:space:]')
+# guard non-numeric
+case "$sz" in
+  ''|*[!0-9]*) sz=0 ;;
+esac
+if [ "$sz" -gt 2097152 ]; then
+  printf '{"error":"response-too-large"}\n'
+  rm -f "$tmpBody"
+  exit 0
+fi
+
+# output capped body
+head -c 2097152 "$tmpBody"
+rm -f "$tmpBody"
+trap - EXIT

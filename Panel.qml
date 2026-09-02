@@ -26,6 +26,24 @@ Panel {
   readonly property string serverHost: (function () { var m = String(serverUrl).match(/\/\/([^/]+)/); return m ? m[1] : serverUrl; })()
   readonly property string scriptPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.tug-benson.patchmon/bin/fetch.sh"
 
+  // caps (producer caps mirrored from fetch.sh)
+  readonly property int maxResponseBytes: 2097152
+  readonly property int maxHosts: 1000
+  readonly property int maxStringLen: 200
+  readonly property int maxOsTypes: 100
+
+  function isValidUrl(u) {
+    if (!u || typeof u !== "string") return false
+    if (u.length > 2048) return false
+    if (u.indexOf(" ") !== -1 || u.indexOf("\t") !== -1 || u.indexOf("\n") !== -1) return false
+    return u.startsWith("https://")
+  }
+  function capStr(s, n) {
+    if (s === undefined || s === null) return ""
+    var t = String(s)
+    return t.length > n ? t.slice(0, n) : t
+  }
+
   // Injected by BarWidget.injectPanel() so the panel anchors to the bar button.
   property var anchorItem: null
   property var hostWidget: null
@@ -159,6 +177,7 @@ Panel {
     var arr = []
     for (var k in od) arr.push({ name: k, count: od[k] })
     arr.sort(function (a, b) { return b.count - a.count })
+    if (arr.length > root.maxOsTypes) arr = arr.slice(0, root.maxOsTypes)
     osDist = arr
     hostsOffline = offlineArr; hostsNeedReboot = rebArr; hostsNeedUpdate = updArr; hostsUpToDate = okArr
     var tt = Math.max(1, total)
@@ -167,12 +186,39 @@ Panel {
   }
 
   function apply(raw) {
+    if (!raw || raw.length === 0) {
+      root.reachable = false
+      root.errorText = "empty-response"
+      return
+    }
+    if (raw.length > root.maxResponseBytes) {
+      root.reachable = false
+      root.errorText = "response-too-large"
+      return
+    }
     try {
       var data = JSON.parse(raw)
-      if (data && data.error) {
+      if (!data || typeof data !== "object") throw "bad"
+      if (data.error) {
         root.reachable = false
-        root.errorText = data.error
+        root.errorText = capStr(data.error, root.maxStringLen)
         return
+      }
+      if (data.hosts && Array.isArray(data.hosts)) {
+        if (data.hosts.length > root.maxHosts) data.hosts = data.hosts.slice(0, root.maxHosts)
+        for (var i = 0; i < data.hosts.length; i++) {
+          var h = data.hosts[i]
+          if (!h || typeof h !== "object") continue
+          if (h.friendly_name !== undefined) h.friendly_name = capStr(h.friendly_name, root.maxStringLen)
+          if (h.hostname !== undefined) h.hostname = capStr(h.hostname, root.maxStringLen)
+          if (h.os_type !== undefined) h.os_type = capStr(h.os_type, root.maxStringLen)
+          if (h.os_version !== undefined) h.os_version = capStr(h.os_version, root.maxStringLen)
+          if (h.ip !== undefined) h.ip = capStr(h.ip, 64)
+          if (h.last_update !== undefined) h.last_update = capStr(h.last_update, 64)
+          if (h.updates_count !== undefined) h.updates_count = Math.max(0, Math.min(100000, Number(h.updates_count) || 0))
+          if (h.security_updates_count !== undefined) h.security_updates_count = Math.max(0, Math.min(100000, Number(h.security_updates_count) || 0))
+          if (h.total_packages !== undefined) h.total_packages = Math.max(0, Math.min(1000000, Number(h.total_packages) || 0))
+        }
       }
       root.rawData = data
       root.reachable = true
@@ -187,6 +233,12 @@ Panel {
 
   function refresh() {
     if (fetchProc.running) return
+    if (!root.configured) return
+    if (!isValidUrl(root.serverUrl)) {
+      root.reachable = false
+      root.errorText = "invalid-url-scheme"
+      return
+    }
     fetchProc.running = true
   }
 
@@ -202,10 +254,26 @@ Panel {
 
   Process {
     id: fetchProc
-    command: ["bash", root.scriptPath, root.serverUrl, root.apiKey, root.apiSecret, root.hostGroup, (root.verifySsl ? "0" : "1")]
+    command: ["bash", root.scriptPath]
+    stdinEnabled: true
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.apply(text)
+    }
+    onStarted: {
+      var payload = JSON.stringify({
+        serverUrl: root.serverUrl,
+        apiKey: root.apiKey,
+        apiSecret: root.apiSecret,
+        hostGroup: root.hostGroup,
+        verifySsl: root.verifySsl
+      })
+      if (payload.length > 8192) {
+        root.apply('{"error":"config-too-large"}')
+        fetchProc.running = false
+        return
+      }
+      fetchProc.write(payload + "\n")
     }
   }
 
@@ -285,6 +353,7 @@ Panel {
         visible: root.configured && !root.reachable
         width: parent.width
         text: "PatchMon unreachable (" + (root.errorText || "error") + ") — showing last known data."
+        textFormat: Text.PlainText
         color: root.urgent
         font.family: root.ff
         font.pixelSize: Style.font.caption
@@ -382,7 +451,7 @@ Panel {
             delegate: RowLayout {
               width: parent.width
               spacing: Style.space(8)
-              Text { text: modelData.name; color: root.fg; font.family: root.ff; font.pixelSize: Style.font.bodySmall; Layout.fillWidth: true; elide: Text.ElideRight }
+              Text { text: modelData.name; textFormat: Text.PlainText; color: root.fg; font.family: root.ff; font.pixelSize: Style.font.bodySmall; Layout.fillWidth: true; elide: Text.ElideRight }
               Item {
                 Layout.preferredWidth: Style.space(80)
                 height: Style.space(8)

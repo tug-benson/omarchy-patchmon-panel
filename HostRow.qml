@@ -48,6 +48,7 @@ RowLayout {
     Layout.fillWidth: true
     Text {
       text: (root.host ? (root.host.friendly_name || root.host.hostname || "") : "")
+      textFormat: Text.PlainText
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
@@ -56,6 +57,7 @@ RowLayout {
     }
     Text {
       text: root.host ? ((root.host.os_type || "") + (root.host.os_version ? " " + root.host.os_version : "")) : ""
+      textFormat: Text.PlainText
       color: Qt.darker(root.foreground, 1.4)
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
