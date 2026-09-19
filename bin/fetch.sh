@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Secure PatchMon fetcher.
 # Reads a single-line JSON object from stdin:
-#   {"serverUrl":"https://...","apiKey":"...","apiSecret":"...","hostGroup":"...","verifySsl":true}
+#   {"serverUrl":"https://...","apiKey":"...","apiSecret":"...","hostGroup":"..."}
 # Never takes secrets via argv; the Authorization header is written to a
 # 0600 --config file (umask 077 + mktemp + chmod 600) and never appears in
 # /proc/*/cmdline. Response size is capped producer-side.
@@ -38,15 +38,11 @@ serverUrl = cap(data.get("serverUrl", ""), 2048)
 apiKey    = cap(data.get("apiKey", ""), 1024)
 apiSecret = cap(data.get("apiSecret", ""), 2048)
 hostGroup = cap(data.get("hostGroup", ""), 200)
-verifySsl = data.get("verifySsl", True)
-# normalize verifySsl to 1/0 string for shell
-v = "1" if str(verifySsl).lower() in ("1","true","yes","on") else "0"
 # shlex.quote for safe eval
 print(f"serverUrl={shlex.quote(serverUrl)}")
 print(f"apiKey={shlex.quote(apiKey)}")
 print(f"apiSecret={shlex.quote(apiSecret)}")
 print(f"hostGroup={shlex.quote(hostGroup)}")
-print(f"verifySsl={shlex.quote(v)}")
 # flag for bad json already handled
 PY
 )"
@@ -82,13 +78,6 @@ if [ -n "${hostGroup:-}" ]; then
   REQ="$REQ&hostgroup=$ESC"
 fi
 
-# --- insecure flag ---
-if [ "${verifySsl:-1}" = "1" ]; then
-  INSECURE_FLAG=""
-else
-  INSECURE_FLAG="--insecure"
-fi
-
 # --- private temp files (0600) ---
 tmpConfig=$(mktemp)
 tmpBody=$(mktemp)
@@ -108,7 +97,7 @@ chmod 600 "$tmpConfig"
 # --- curl with producer-side caps ---
 # --proto =https enforces https only; --max-filesize caps response at 2 MiB
 # --max-time and --connect-timeout cap duration
-curl --silent --show-error $INSECURE_FLAG \
+curl --silent --show-error \
   --max-time 30 --connect-timeout 10 \
   --max-filesize 2097152 \
   --proto =https --proto-default https \

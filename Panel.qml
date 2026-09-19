@@ -16,7 +16,6 @@ Panel {
   readonly property string apiKey: setting("apiKey", "") || ""
   readonly property string apiSecret: setting("apiSecret", "") || ""
   readonly property string hostGroup: setting("hostGroup", "") || ""
-  readonly property bool verifySsl: setting("verifySsl", true)
   readonly property int refreshIntervalSec: Math.max(15, setting("refreshIntervalSec", 60))
   // A host counts as "reporting/online" when it last checked in within this
   // many minutes. PatchMon's Integration API does not expose reporting_state,
@@ -266,8 +265,7 @@ Panel {
         serverUrl: root.serverUrl,
         apiKey: root.apiKey,
         apiSecret: root.apiSecret,
-        hostGroup: root.hostGroup,
-        verifySsl: root.verifySsl
+        hostGroup: root.hostGroup
       })
       if (payload.length > 8192) {
         root.apply('{"error":"config-too-large"}')

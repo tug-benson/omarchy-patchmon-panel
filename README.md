@@ -92,7 +92,6 @@ under `bar.layout.right`:
   "serverUrl": "https://patchmon.example.com",
   "apiKey": "patchmon_ae_xxxxxxxx",
   "apiSecret": "yyyyyyyyyyyy",
-  "verifySsl": true,
   "refreshIntervalSec": 60
 }
 ```
@@ -111,7 +110,6 @@ The shell hot-reloads on save. Click the server icon to open the panel.
 | `apiKey` | string | — | Integration API token key |
 | `apiSecret` | string | — | Integration API token secret |
 | `hostGroup` | string | `""` | Optional: only show one PatchMon host group |
-| `verifySsl` | bool | `true` | Set `false` only for self-signed test instances |
 | `refreshIntervalSec` | int | `60` | Poll interval (clamped 15–600) |
 
 ## How it works

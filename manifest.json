@@ -28,8 +28,7 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "refreshIntervalSec": 60,
-      "verifySsl": true
+      "refreshIntervalSec": 60
     },
     "schema": [
       {
@@ -59,13 +58,6 @@
         "label": "Host group filter (optional)",
         "defaultValue": "",
         "description": "Only show hosts in this PatchMon host group"
-      },
-      {
-        "key": "verifySsl",
-        "type": "boolean",
-        "label": "Verify TLS certificate",
-        "defaultValue": true,
-        "description": "Disable only for self-signed/internal test instances"
       },
       {
         "key": "refreshIntervalSec",
